@@ -1,0 +1,4 @@
+Server/cmake-build-debug
+Client/cmake-build-debug
+Client/.idea
+Server/.idea
