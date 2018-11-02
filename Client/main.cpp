@@ -103,7 +103,7 @@ int main() {
     send(s, (void *)request.c_str(), strlen(request.c_str()), 0);
 
     char buff[BUFF_SIZE];
-    int recv_bytes = recv(s, buff, BUFF_SIZE, 0);
+    ssize_t recv_bytes = recv(s, buff, BUFF_SIZE, 0);  // TODO(AntonyMo): implement read check
     std::stringstream dhcp_input(buff);
 
     std::string vip;

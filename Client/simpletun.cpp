@@ -64,9 +64,9 @@ int tun_alloc(std::string &dev, short flags) {
  * cread: read routine that checks for errors and exits if an error is    *
  *        returned.                                                       *
  **************************************************************************/
-int cread(int fd, char *buf, int n) {
+ssize_t cread(int fd, char *buf, size_t n) {
 
-    int nread;
+    ssize_t nread;
 
     if ((nread = read(fd, buf, n)) < 0) {
         perror("Reading data");
@@ -79,9 +79,9 @@ int cread(int fd, char *buf, int n) {
  * cwrite: write routine that checks for errors and exits if an error is  *
  *         returned.                                                      *
  **************************************************************************/
-int cwrite(int fd, char *buf, int n) {
+ssize_t cwrite(int fd, char *buf, size_t n) {
 
-    int nwrite;
+    ssize_t nwrite;
 
     if ((nwrite = write(fd, buf, n)) < 0) {
     perror("Writing data");
@@ -94,9 +94,10 @@ int cwrite(int fd, char *buf, int n) {
  * read_n: ensures we read exactly n bytes, and puts them into "buf".     *
  *         (unless EOF, of course)                                        *
  **************************************************************************/
-int read_n(int fd, char *buf, int n) {
+ssize_t read_n(int fd, char *buf, size_t n) {
 
-    int nread, left = n;
+    ssize_t nread;
+    size_t left = n;
 
     while (left > 0) {
         if ((nread = cread(fd, buf, left)) == 0) {
@@ -109,68 +110,23 @@ int read_n(int fd, char *buf, int n) {
     return n;
 }
 
-/**************************************************************************
- * do_debug: prints debugging stuff (doh!)                                *
- **************************************************************************/
-void do_debug(const char *msg, ...) {
-
-    va_list argp;
-
-    if (debug) {
-        va_start(argp, msg);
-        vfprintf(stderr, msg, argp);
-        va_end(argp);
-    }
-}
-
-/**************************************************************************
- * my_err: prints custom error messages on stderr.                        *
- **************************************************************************/
-void my_err(const char *msg, ...) {
-
-    va_list argp;
-
-    va_start(argp, msg);
-    vfprintf(stderr, msg, argp);
-    va_end(argp);
-}
-
-/**************************************************************************
- * usage: prints usage and exits.                                         *
- **************************************************************************/
-void usage() {
-    fprintf(stderr, "Usage:\n");
-    fprintf(stderr, "%s -i <ifacename> [-s|-c <serverIP>] [-p <port>] [-u|-a] [-d]\n", progname);
-    fprintf(stderr, "%s -h\n", progname);
-    fprintf(stderr, "\n");
-    fprintf(stderr, "-i <ifacename>: Name of interface to use (mandatory)\n");
-    fprintf(stderr,
-            "-s|-c <serverIP>: run in server mode (-s), or specify server address (-c <serverIP>) (mandatory)\n");
-    fprintf(stderr,
-            "-p <port>: port to listen on (if run in server mode) or to connect to (in client mode), default 55555\n");
-    fprintf(stderr, "-u|-a: use TUN (-u, default) or TAP (-a)\n");
-    fprintf(stderr, "-d: outputs debug information while running\n");
-    fprintf(stderr, "-h: prints this help text\n");
-    exit(1);
-}
-
 int connect_to_server(const std::string &ifname, const std::string &remote_ip) {
-    int flags = IFF_TUN;
+    short flags = IFF_TUN;
     std::string if_name = ifname;
     int maxfd;
-    uint16_t nread, nwrite, plength;
+    ssize_t nread, nwrite, plength;
     char buffer[BUFSIZE];
-    sockaddr_in remote;
+    sockaddr_in remote{};
     unsigned short int port = PORT;
     unsigned long int tap2net = 0, net2tap = 0;
 
     /* initialize tun/tap interface */
     if ((tap_fd = tun_alloc(if_name, flags | IFF_NO_PI)) < 0) {
-        my_err("Error connecting to tun/tap interface %s!\n", if_name);
+        fprintf(stderr, "Error connecting to tun/tap interface %s!\n", if_name.c_str());
         exit(1);
     }
 
-    do_debug("Successfully connected to interface %s\n", if_name);
+    printf("Successfully connected to interface %s\n", if_name.c_str());
 
     if ((sock_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) {
         perror("socket()");
@@ -193,7 +149,7 @@ int connect_to_server(const std::string &ifname, const std::string &remote_ip) {
     }
 
     int net_fd = sock_fd;
-    do_debug("CLIENT: Connected to server %s\n", inet_ntoa(remote.sin_addr));
+    printf("CLIENT: Connected to server %s\n", inet_ntoa(remote.sin_addr));
 
     /* use select() to handle two descriptors at once */
     maxfd = (tap_fd > net_fd) ? tap_fd : net_fd;
@@ -206,7 +162,7 @@ int connect_to_server(const std::string &ifname, const std::string &remote_ip) {
         FD_SET(tap_fd, &rd_set);
         FD_SET(net_fd, &rd_set);
 
-        ret = select(maxfd + 1, &rd_set, NULL, NULL, NULL);
+        ret = select(maxfd + 1, &rd_set, nullptr, nullptr, nullptr);
 
         if (ret < 0 && errno == EINTR) {
             continue;
@@ -223,14 +179,14 @@ int connect_to_server(const std::string &ifname, const std::string &remote_ip) {
             nread = cread(tap_fd, buffer, BUFSIZE);
 
             tap2net++;
-            do_debug("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
+            printf("TAP2NET %lu: Read %lu bytes from the tap interface\n", tap2net, nread);
 
             /* write length + packet */
             plength = htons(nread);
-            nwrite = cwrite(net_fd, (char *) &plength, sizeof(plength));
+            nwrite = cwrite(net_fd, (char *) &plength, sizeof(plength));  // TODO(AntonyMo): implement write check
             nwrite = cwrite(net_fd, buffer, nread);
 
-            do_debug("TAP2NET %lu: Written %d bytes to the network\n", tap2net, nwrite);
+            printf("TAP2NET %lu: Written %lu bytes to the network\n", tap2net, nwrite);
         }
 
         if (FD_ISSET(net_fd, &rd_set)) {
@@ -247,12 +203,12 @@ int connect_to_server(const std::string &ifname, const std::string &remote_ip) {
             net2tap++;
 
             /* read packet */
-            nread = read_n(net_fd, buffer, ntohs(plength));
-            do_debug("NET2TAP %lu: Read %d bytes from the network\n", net2tap, nread);
+            nread = read_n(net_fd, buffer, ntohl(plength));
+            printf("NET2TAP %lu: Read %lu bytes from the network\n", net2tap, nread);
 
             /* now buffer[] contains a full packet or frame, write it into the tun/tap interface */
             nwrite = cwrite(tap_fd, buffer, nread);
-            do_debug("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nwrite);
+            printf("NET2TAP %lu: Written %lu bytes to the tap interface\n", net2tap, nwrite);
         }
     }
 
